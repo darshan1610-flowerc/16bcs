@@ -28,54 +28,54 @@ const App: React.FC = () => {
   const [unreadIds, setUnreadIds] = useState<string[]>([]);
   const [hqActive, setHqActive] = useState(false);
 
-  // Background Wake-up Ping
+  // 1. DATA HYDRATION ENGINE
+  const hydrateFromBackend = async () => {
+    const data = await syncService.fetchInitialState(EVENT_CODE);
+    if (data) {
+      setUsers(prev => prev.map(u => {
+        const remote = data.users[u.id];
+        if (remote) {
+          return {
+            ...u,
+            attendance: remote.attendance || [],
+            status: remote.status || 'Offline',
+            currentLocation: remote.currentLocation,
+            isInsideGeofence: remote.isInsideGeofence,
+            lastSeen: remote.lastSeen
+          };
+        }
+        return u;
+      }));
+      setMessages(data.messages);
+      setWorkUpdates(data.workUpdates);
+      setLastSync(Date.now());
+    }
+  };
+
   useEffect(() => {
     const pingHQ = async () => {
-      console.log("[BCS] Sending HQ Heartbeat...");
       const active = await wakeUpHQ();
       setHqActive(active);
-      if (!active) {
-        // Retry every 10s until server is awake
-        const timer = setTimeout(pingHQ, 10000);
-        return () => clearTimeout(timer);
-      }
+      if (active) hydrateFromBackend();
+      else setTimeout(pingHQ, 10000);
     };
     pingHQ();
   }, []);
 
   useEffect(() => {
     if (isLoggedIn && currentUser) {
+      hydrateFromBackend(); // Refresh state on login
       const cleanup = syncService.init(EVENT_CODE, currentUser, (update) => {
         setLastSync(Date.now());
-        
-        if (update.type === 'full') {
-          const state = update.state;
-          setUsers(prev => prev.map(u => ({ ...u, ...(state.users[u.id] || {}) })));
-          setMessages(state.messages);
-          setWorkUpdates(state.workUpdates);
-        } else if (update.type === 'user') {
+        if (update.type === 'user') {
           setUsers(prev => prev.map(u => u.id === update.userId ? { ...u, ...update.data } : u));
         } else if (update.type === 'messages') {
-          setMessages(prev => {
-            if (prev.some(m => m.id === update.item.id)) return prev;
-            
-            // Notification Logic: If message is for us and we aren't the sender
-            if (update.item.receiverId === currentUser.id) {
-              setUnreadIds(prevIds => {
-                if (!prevIds.includes(update.item.senderId)) {
-                  return [...prevIds, update.item.senderId];
-                }
-                return prevIds;
-              });
-            }
-            
-            return [...prev, update.item];
-          });
+          setMessages(prev => prev.some(m => m.id === update.item.id) ? prev : [...prev, update.item]);
+          if (update.item.receiverId === currentUser.id) {
+            setUnreadIds(ids => ids.includes(update.item.senderId) ? ids : [...ids, update.item.senderId]);
+          }
         } else if (update.type === 'workUpdates') {
-          setWorkUpdates(prev => {
-            if (prev.some(w => w.id === update.item.id)) return prev;
-            return [update.item, ...prev];
-          });
+          setWorkUpdates(prev => prev.some(w => w.id === update.item.id) ? prev : [update.item, ...prev]);
         }
       });
       return cleanup;
@@ -125,9 +125,9 @@ const App: React.FC = () => {
     const sessionKey = `D${day}S${session}`;
     setUsers(prev => prev.map(u => {
       if (u.id === userId && !u.attendance.includes(sessionKey)) {
-        const updated = { ...u, attendance: [...u.attendance, sessionKey] };
-        syncService.pushState(EVENT_CODE, userId, { attendance: updated.attendance });
-        return updated;
+        const updatedAttendance = [...u.attendance, sessionKey];
+        syncService.pushState(EVENT_CODE, userId, { attendance: updatedAttendance });
+        return { ...u, attendance: updatedAttendance };
       }
       return u;
     }));
@@ -197,8 +197,9 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <button onClick={hydrateFromBackend} className="text-[9px] font-black text-indigo-400 uppercase tracking-widest hover:text-white transition-colors">Manual Sync</button>
           <span className="text-slate-400">|</span>
-          <span className="font-mono text-[9px] text-slate-500">Last Sync: {new Date(lastSync).toLocaleTimeString()}</span>
+          <span className="font-mono text-[9px] text-slate-500">Uplink: {new Date(lastSync).toLocaleTimeString()}</span>
           <button 
             onClick={handleLogout}
             className="bg-slate-800 hover:bg-red-600 px-3 py-1 rounded font-medium transition-colors border border-slate-700"
