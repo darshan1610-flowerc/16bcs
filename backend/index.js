@@ -13,9 +13,9 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// 1. Enhanced CORS configuration for robust cross-origin support
+// 1. Robust CORS configuration for event environments
 const corsOptions = {
-  origin: true, // Reflect request origin
+  origin: true,
   methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   credentials: true,
@@ -23,7 +23,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Handle pre-flight for all routes
 app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
@@ -68,35 +67,43 @@ if (MONGODB_URI) {
     .catch(err => console.error('✗ Database Link Failure:', err));
 }
 
-// Health check route with CORS enabled
 app.get('/', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
-  res.json({ status: 'ACTIVE', version: '1.2.0', timestamp: Date.now() });
+  res.json({ status: 'ACTIVE', version: '1.2.1', hq_link: true });
 });
 
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20, // Increased for busy event days
+  max: 30,
   message: { error: "AI link throttled." }
 });
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const verificationCache = new Map();
 
 app.post('/api/verify', aiLimiter, async (req, res) => {
   const { image } = req.body;
-  if (!image) return res.status(400).json({ error: "No image data." });
+  if (!image) return res.status(400).json({ error: "No image data provided." });
   
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.error("✗ CRITICAL: API_KEY is missing from environment variables.");
+    return res.status(500).json({ 
+      error: "HQ CONFIGURATION ERROR: The API_KEY is not set in the Render environment." 
+    });
+  }
+
   const hash = crypto.createHash('md5').update(image).digest('hex');
   if (verificationCache.has(hash)) return res.json(verificationCache.get(hash));
 
   try {
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: image.split(',')[1] || image } },
-          { text: "Analyze this photo for attendance verification. 1. Check if it's a live, authentic photo of a university campus. 2. Extract GPS coordinates (lat/lng) from EXIF data if present. 3. Return strictly JSON." }
+          { text: "Location Verification: Extract GPS coordinates (latitude/longitude) from this photo's metadata or visual context (like campus buildings/landmarks). If the coordinates are present, provide them. Be generous with the isAuthentic flag - as long as it looks like a real photo of a location, set isAuthentic to true. Return strictly JSON." }
         ]
       },
       config: {
@@ -114,11 +121,12 @@ app.post('/api/verify', aiLimiter, async (req, res) => {
         }
       }
     });
+
     const result = JSON.parse(response.text.trim());
     verificationCache.set(hash, result);
     res.json(result);
   } catch (error) {
-    console.error("AI Error:", error);
+    console.error("AI Generation Error:", error);
     res.status(500).json({ error: "Intelligence Uplink Failure: " + error.message });
   }
 });
