@@ -1,6 +1,5 @@
-
-import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, User } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface ChatSystemProps {
   messages: ChatMessage[];
@@ -8,17 +7,32 @@ interface ChatSystemProps {
   currentUserId: string;
   targets: User[];
   isMemberMode?: boolean;
+  unreadIds?: string[];
+  onClearUnread?: (id: string) => void;
 }
 
-const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, currentUserId, targets, isMemberMode }) => {
+const ChatSystem: React.FC<ChatSystemProps> = ({ 
+  messages, 
+  onSendMessage, 
+  currentUserId, 
+  targets, 
+  isMemberMode,
+  unreadIds = [],
+  onClearUnread
+}) => {
   const [selectedTargetId, setSelectedTargetId] = useState<string | undefined>(targets[0]?.id);
   const [inputText, setInputText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const scrollToBottom = () => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+    scrollToBottom();
+    const t = setTimeout(scrollToBottom, 50);
+    return () => clearTimeout(t);
   }, [messages, selectedTargetId]);
 
   useEffect(() => {
@@ -26,6 +40,13 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
       setSelectedTargetId(targets[0].id);
     }
   }, [targets, selectedTargetId]);
+
+  // When a person is selected, clear their unread status
+  useEffect(() => {
+    if (selectedTargetId && unreadIds.includes(selectedTargetId)) {
+      onClearUnread?.(selectedTargetId);
+    }
+  }, [selectedTargetId, unreadIds, onClearUnread]);
 
   const conversation = messages.filter(m => 
     (m.senderId === currentUserId && m.receiverId === selectedTargetId) ||
@@ -55,6 +76,8 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
     return <svg className={`w-full h-full ${colorClass}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>;
   };
 
+  const currentTarget = targets.find(t => t.id === selectedTargetId);
+
   return (
     <div className="flex h-full min-h-[400px] bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
       {!isMemberMode && (
@@ -65,6 +88,7 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
               (m.senderId === currentUserId && m.receiverId === target.id) ||
               (m.senderId === target.id && m.receiverId === currentUserId)
             ).pop();
+            const isUnread = unreadIds.includes(target.id);
 
             return (
               <button
@@ -75,20 +99,25 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
                 }`}
               >
                 <div className="relative">
-                  <div className={`w-10 h-10 rounded-xl bg-slate-950 border border-slate-700 flex items-center justify-center p-2 ${target.status === 'Online' ? 'border-emerald-500/30' : ''}`}>
+                  <div className={`w-10 h-10 rounded-xl bg-slate-950 border border-slate-700 flex items-center justify-center p-2 ${target.status === 'Online' ? 'border-emerald-500/30' : ''} ${isUnread ? 'ring-2 ring-red-500/40 animate-pulse' : ''}`}>
                     {getTacticalIcon(target.department, target.status === 'Online')}
                   </div>
-                  {target.status === 'Online' && (
+                  {isUnread && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-600 rounded-full border-2 border-slate-900 shadow-lg shadow-red-500/40 z-20"></span>
+                  )}
+                  {target.status === 'Online' && !isUnread && (
                     <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
                   )}
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <div className="flex justify-between items-baseline mb-0.5">
-                    <div className="text-[11px] font-black text-slate-200 truncate uppercase tracking-tight">{target.name}</div>
+                    <div className={`text-[11px] font-black uppercase tracking-tight truncate ${isUnread ? 'text-red-400' : 'text-slate-200'}`}>
+                      {target.name}
+                    </div>
                     {lastMsg && <span className="text-[8px] font-mono text-slate-500">{new Date(lastMsg.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>}
                   </div>
-                  <div className="text-[9px] text-slate-500 truncate italic font-medium">
-                    {lastMsg ? lastMsg.text : 'Sector idle...'}
+                  <div className={`text-[9px] truncate italic font-medium ${isUnread ? 'text-red-500/70 font-black' : 'text-slate-500'}`}>
+                    {isUnread ? '!! NEW_TRANSMISSION !!' : lastMsg ? lastMsg.text : 'Sector idle...'}
                   </div>
                 </div>
               </button>
@@ -103,16 +132,16 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/30 backdrop-blur-md">
                <div className="flex items-center gap-3">
                  <div className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-700 flex items-center justify-center p-1.5">
-                    {getTacticalIcon(targets.find(t => t.id === selectedTargetId)?.department || 'Default', targets.find(t => t.id === selectedTargetId)?.status === 'Online')}
+                    {getTacticalIcon(currentTarget?.department || 'Default', currentTarget?.status === 'Online')}
                  </div>
                  <div>
-                   <span className="text-[11px] font-black text-white uppercase tracking-wider block leading-none">{targets.find(t => t.id === selectedTargetId)?.name}</span>
-                   <span className="text-[8px] font-bold text-slate-500 uppercase mt-1 block">{targets.find(t => t.id === selectedTargetId)?.department}</span>
+                   <span className="text-[11px] font-black text-white uppercase tracking-wider block leading-none">{currentTarget?.name}</span>
+                   <span className="text-[8px] font-bold text-slate-500 uppercase mt-1 block">{currentTarget?.department}</span>
                  </div>
                </div>
                <div className="flex items-center gap-2">
-                 <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">LIVE_LINK</span>
+                 <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${currentTarget?.status === 'Online' ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{currentTarget?.status === 'Online' ? 'LIVE_LINK' : 'STBY'}</span>
                </div>
             </div>
 
@@ -129,7 +158,7 @@ const ChatSystem: React.FC<ChatSystemProps> = ({ messages, onSendMessage, curren
                   }`}>
                     <p className="leading-relaxed font-medium">{msg.text}</p>
                     <div className={`text-[7px] mt-2 font-mono ${msg.senderId === currentUserId ? 'text-indigo-200/60 text-right' : 'text-slate-600'}`}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 </div>
