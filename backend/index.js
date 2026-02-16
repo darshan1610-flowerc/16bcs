@@ -13,7 +13,6 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// 1. Robust CORS configuration for event environments
 const corsOptions = {
   origin: true,
   methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
@@ -24,13 +23,13 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-
 app.use(express.json({ limit: '10mb' }));
 
 const io = new Server(httpServer, {
   cors: corsOptions
 });
 
+// Enhanced User Schema for persistence
 const UserSchema = new mongoose.Schema({
   uid: { type: String, required: true, unique: true },
   name: String,
@@ -38,27 +37,33 @@ const UserSchema = new mongoose.Schema({
   role: String,
   department: String,
   status: { type: String, default: 'Offline' },
-  lastSeen: { type: Date, default: Date.now }
-});
-
-const LocationSchema = new mongoose.Schema({
-  userId: String,
-  lat: Number,
-  lng: Number,
-  isInsideGeofence: Boolean,
-  timestamp: { type: Date, default: Date.now }
+  lastSeen: { type: Date, default: Date.now },
+  attendance: [String],
+  currentLocation: {
+    lat: Number,
+    lng: Number,
+    timestamp: Number
+  },
+  isInsideGeofence: Boolean
 });
 
 const MessageSchema = new mongoose.Schema({
   senderId: String,
   receiverId: String,
   text: String,
+  timestamp: { type: Date, default: Date.now },
+  isRead: { type: Boolean, default: false }
+});
+
+const WorkUpdateSchema = new mongoose.Schema({
+  userId: String,
+  task: String,
   timestamp: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model('User', UserSchema);
-const LocationUpdate = mongoose.model('Location', LocationSchema);
 const Message = mongoose.model('Message', MessageSchema);
+const WorkUpdate = mongoose.model('WorkUpdate', WorkUpdateSchema);
 
 const MONGODB_URI = process.env.MONGODB_URI;
 if (MONGODB_URI) {
@@ -67,9 +72,49 @@ if (MONGODB_URI) {
     .catch(err => console.error('✗ Database Link Failure:', err));
 }
 
+// 1. STATE RECOVERY ENDPOINT
+app.get('/api/state/:eventCode', async (req, res) => {
+  try {
+    const users = await User.find({});
+    const messages = await Message.find({}).sort({ timestamp: 1 }).limit(100);
+    const workUpdates = await WorkUpdate.find({}).sort({ timestamp: -1 }).limit(50);
+    
+    // Map DB users to a record object for the frontend
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u.uid] = {
+        status: u.status,
+        attendance: u.attendance,
+        currentLocation: u.currentLocation,
+        isInsideGeofence: u.isInsideGeofence,
+        lastSeen: u.lastSeen?.getTime()
+      };
+    });
+
+    res.json({
+      users: userMap,
+      messages: messages.map(m => ({
+        id: m._id,
+        senderId: m.senderId,
+        receiverId: m.receiverId,
+        text: m.text,
+        timestamp: m.timestamp.getTime(),
+        isRead: m.isRead
+      })),
+      workUpdates: workUpdates.map(w => ({
+        id: w._id,
+        userId: w.userId,
+        task: w.task,
+        timestamp: w.timestamp.getTime()
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: "State Recovery Failure" });
+  }
+});
+
 app.get('/', (req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.json({ status: 'ACTIVE', version: '1.2.1', hq_link: true });
+  res.json({ status: 'ACTIVE', version: '2.0.0', hq_link: true });
 });
 
 const aiLimiter = rateLimit({
@@ -78,32 +123,21 @@ const aiLimiter = rateLimit({
   message: { error: "AI link throttled." }
 });
 
-const verificationCache = new Map();
-
 app.post('/api/verify', aiLimiter, async (req, res) => {
   const { image } = req.body;
-  if (!image) return res.status(400).json({ error: "No image data provided." });
+  if (!image) return res.status(400).json({ error: "No image data" });
   
   const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    console.error("✗ CRITICAL: API_KEY is missing from environment variables.");
-    return res.status(500).json({ 
-      error: "HQ CONFIGURATION ERROR: The API_KEY is not set in the Render environment." 
-    });
-  }
-
-  const hash = crypto.createHash('md5').update(image).digest('hex');
-  if (verificationCache.has(hash)) return res.json(verificationCache.get(hash));
+  if (!apiKey) return res.status(500).json({ error: "API_KEY Missing" });
 
   try {
-    const ai = new GoogleGenAI({ apiKey: apiKey });
-    
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: image.split(',')[1] || image } },
-          { text: "Location Verification: Extract GPS coordinates (latitude/longitude) from this photo's metadata or visual context (like campus buildings/landmarks). If the coordinates are present, provide them. Be generous with the isAuthentic flag - as long as it looks like a real photo of a location, set isAuthentic to true. Return strictly JSON." }
+          { text: "Extract GPS coordinates. Return JSON with latitude, longitude, isAuthentic, isCampus, confidence." }
         ]
       },
       config: {
@@ -122,45 +156,67 @@ app.post('/api/verify', aiLimiter, async (req, res) => {
       }
     });
 
-    const result = JSON.parse(response.text.trim());
-    verificationCache.set(hash, result);
-    res.json(result);
+    res.json(JSON.parse(response.text.trim()));
   } catch (error) {
-    console.error("AI Generation Error:", error);
-    res.status(500).json({ error: "Intelligence Uplink Failure: " + error.message });
+    res.status(500).json({ error: "AI UPLINK ERROR" });
   }
 });
 
 io.on('connection', (socket) => {
   socket.on('join_event', async ({ eventCode, user }) => {
     socket.join(eventCode);
-    await User.findOneAndUpdate(
+    const updated = await User.findOneAndUpdate(
       { uid: user.id }, 
-      { name: user.name, email: user.email, role: user.role, department: user.department, status: 'Online', lastSeen: Date.now() }, 
-      { upsert: true }
+      { 
+        name: user.name, 
+        email: user.email, 
+        role: user.role, 
+        department: user.department, 
+        status: 'Online', 
+        lastSeen: Date.now() 
+      }, 
+      { upsert: true, new: true }
     );
-    socket.to(eventCode).emit('user_status_changed', { userId: user.id, status: 'Online' });
+    io.to(eventCode).emit('user_status_changed', { 
+      userId: user.id, 
+      status: 'Online',
+      data: updated
+    });
   });
 
   socket.on('update_location', async ({ eventCode, userId, data }) => {
-    if (data.currentLocation) {
-      await LocationUpdate.create({
-        userId,
-        lat: data.currentLocation.lat,
-        lng: data.currentLocation.lng,
-        isInsideGeofence: data.isInsideGeofence
-      });
-    }
+    const updatePayload = { lastSeen: Date.now() };
+    if (data.currentLocation) updatePayload.currentLocation = data.currentLocation;
+    if (data.attendance) updatePayload.attendance = data.attendance;
+    if (typeof data.isInsideGeofence === 'boolean') updatePayload.isInsideGeofence = data.isInsideGeofence;
+    if (data.status) updatePayload.status = data.status;
+
+    await User.findOneAndUpdate({ uid: userId }, updatePayload);
     socket.to(eventCode).emit('telemetry_received', { userId, data });
   });
 
   socket.on('broadcast_activity', async ({ eventCode, type, item }) => {
     if (type === 'messages') {
-      await Message.create({ senderId: item.senderId, receiverId: item.receiverId, text: item.text });
+      await Message.create({ 
+        senderId: item.senderId, 
+        receiverId: item.receiverId, 
+        text: item.text,
+        timestamp: new Date(item.timestamp)
+      });
+    } else if (type === 'workUpdates') {
+      await WorkUpdate.create({
+        userId: item.userId,
+        task: item.task,
+        timestamp: new Date(item.timestamp)
+      });
     }
     io.to(eventCode).emit('new_activity', { type, item });
+  });
+
+  socket.on('disconnect', () => {
+    // We don't mark offline immediately to handle flaky connections
   });
 });
 
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => console.log(`BCS HQ Active on Port ${PORT}`));
+httpServer.listen(PORT, () => console.log(`BCS HQ SECURE ON PORT ${PORT}`));
