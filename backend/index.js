@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -14,12 +13,19 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// Updated CORS to be more flexible for deployment
+// 1. MUST BE FIRST: Explicit CORS configuration for both Express and Socket.io
+const corsOptions = {
+  origin: "*", 
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+
 const io = new Server(httpServer, {
-  cors: {
-    origin: "*", // Allow all for initial deployment, then restrict to your Netlify URL
-    methods: ["GET", "POST"]
-  }
+  cors: corsOptions
 });
 
 const UserSchema = new mongoose.Schema({
@@ -58,9 +64,6 @@ if (MONGODB_URI) {
     .catch(err => console.error('✗ Database Link Failure:', err));
 }
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
 // Health check route
 app.get('/', (req, res) => res.send('BCS Tactical Server: ACTIVE'));
 
@@ -76,6 +79,7 @@ const verificationCache = new Map();
 app.post('/api/verify', aiLimiter, async (req, res) => {
   const { image } = req.body;
   if (!image) return res.status(400).json({ error: "No image data." });
+  
   const hash = crypto.createHash('md5').update(image).digest('hex');
   if (verificationCache.has(hash)) return res.json(verificationCache.get(hash));
 
@@ -107,7 +111,8 @@ app.post('/api/verify', aiLimiter, async (req, res) => {
     verificationCache.set(hash, result);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Intelligence Uplink Failure" });
+    console.error("AI Error:", error);
+    res.status(500).json({ error: "Intelligence Uplink Failure: " + error.message });
   }
 });
 
