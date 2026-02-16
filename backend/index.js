@@ -13,15 +13,19 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// 1. MUST BE FIRST: Explicit CORS configuration for both Express and Socket.io
+// 1. Enhanced CORS configuration for robust cross-origin support
 const corsOptions = {
-  origin: "*", 
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
+  origin: true, // Reflect request origin
+  methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
+// Handle pre-flight for all routes
+app.options('*', cors(corsOptions));
+
 app.use(express.json({ limit: '10mb' }));
 
 const io = new Server(httpServer, {
@@ -64,12 +68,15 @@ if (MONGODB_URI) {
     .catch(err => console.error('✗ Database Link Failure:', err));
 }
 
-// Health check route
-app.get('/', (req, res) => res.send('BCS Tactical Server: ACTIVE'));
+// Health check route with CORS enabled
+app.get('/', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json({ status: 'ACTIVE', version: '1.2.0', timestamp: Date.now() });
+});
 
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 20, // Increased for busy event days
   message: { error: "AI link throttled." }
 });
 
@@ -89,7 +96,7 @@ app.post('/api/verify', aiLimiter, async (req, res) => {
       contents: {
         parts: [
           { inlineData: { mimeType: 'image/jpeg', data: image.split(',')[1] || image } },
-          { text: "Verify if this photo is taken at a university campus. Extract GPS coords from the image metadata. Return JSON." }
+          { text: "Analyze this photo for attendance verification. 1. Check if it's a live, authentic photo of a university campus. 2. Extract GPS coordinates (lat/lng) from EXIF data if present. 3. Return strictly JSON." }
         ]
       },
       config: {
