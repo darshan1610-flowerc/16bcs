@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Equipment, ChatMessage, WorkUpdate, Role } from '../types';
 import MapTracker from './MapTracker';
 import AttendanceSheet from './AttendanceSheet';
@@ -15,6 +14,8 @@ interface AdminDashboardProps {
   onRegisterEquipment: (name: string, sn: string, memberId: string) => void;
   onSendMessage: (senderId: string, receiverId: string, text: string) => void;
   adminId: string;
+  unreadIds: string[];
+  onClearUnread: (id: string) => void;
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
@@ -25,7 +26,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateEquipment,
   onRegisterEquipment,
   onSendMessage,
-  adminId
+  adminId,
+  unreadIds,
+  onClearUnread
 }) => {
   const [activeTab, setActiveTab] = useState<'map' | 'sheet' | 'inventory' | 'chat'>('map');
   const [selectedDay, setSelectedDay] = useState(1);
@@ -34,7 +37,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const members = users.filter(u => u.role === Role.MEMBER);
   const sessionKey = `D${selectedDay}S${selectedSession}`;
 
-  // REQUIREMENT: Show all verified (Present + Online) members across all departments
   const activeMembersOnMap = members.filter(m => 
     m.attendance.includes(sessionKey) &&
     m.status === 'Online' && 
@@ -42,6 +44,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   );
 
   const geofenceViolations = activeMembersOnMap.filter(m => m.currentLocation && !m.isInsideGeofence);
+
+  // If user clicks chat tab, we could conceptually clear overall notifications
+  // But we handle per-user clearing inside ChatSystem now
 
   return (
     <div className="flex flex-col h-screen lg:flex-row bg-slate-950 text-slate-200 overflow-hidden">
@@ -56,7 +61,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Command Center</p>
         </div>
 
-        {/* Global View Controls */}
         <div className="mb-8 p-4 bg-slate-950/50 rounded-2xl border border-slate-800 space-y-4">
            <div className="space-y-1">
              <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Active View Day</span>
@@ -94,14 +98,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all uppercase tracking-wider ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all uppercase tracking-wider ${
                 activeTab === tab.id 
                   ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)]' 
                   : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={tab.icon}/></svg>
-              {tab.label}
+              <div className="flex items-center gap-3">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={tab.icon}/></svg>
+                {tab.label}
+              </div>
+              {tab.id === 'chat' && unreadIds.length > 0 && (
+                <span className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[8px] animate-pulse shadow-lg shadow-red-500/50">
+                  {unreadIds.length}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -180,6 +191,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                    onSendMessage={onSendMessage} 
                    currentUserId={adminId} 
                    targets={members} 
+                   unreadIds={unreadIds}
+                   onClearUnread={onClearUnread}
                  />
                </div>
             )}
