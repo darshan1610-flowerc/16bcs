@@ -13,7 +13,7 @@ const MOVEMENT_THRESHOLD = 0.0002;
  * 🛰️ PRODUCTION CONFIGURATION
  * Paste your Render URL here once it is deployed.
  */
-export const BACKEND_PROD_URL = 'https://bcs-media-backend.onrender.com';
+export const BACKEND_PROD_URL = 'https://one5bcs-backend.onrender.com';
 
 export const syncService = {
   init: (eventCode: string, user: User, onUpdate: (data: any) => void) => {
