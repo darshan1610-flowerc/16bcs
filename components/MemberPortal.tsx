@@ -15,6 +15,8 @@ interface MemberPortalProps {
   isTracking: boolean;
   onSendMessage: (text: string) => void;
   onAddWorkUpdate: (task: string) => void;
+  hasUnread: boolean;
+  onClearUnread: () => void;
 }
 
 const CAMPUS_BOUNDS = {
@@ -62,7 +64,9 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
   onUpdateLocation,
   isTracking,
   onSendMessage,
-  onAddWorkUpdate
+  onAddWorkUpdate,
+  hasUnread,
+  onClearUnread
 }) => {
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [selectedSession, setSelectedSession] = useState<number>(1);
@@ -132,7 +136,7 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
           }
         }
       } catch (err: any) {
-        setAttendanceError(`SYSTEM_FAULT: ${err.message || 'AI Analysis Failure.'}`);
+        setAttendanceError(`UPLINK_ALERT: ${err.message}`);
       } finally {
         setIsVerifying(false);
       }
@@ -235,7 +239,7 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
                       isVerifying ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : `bg-white text-slate-950 hover:bg-slate-200 shadow-2xl active:scale-95`
                     }`}
                   >
-                    {isVerifying ? 'ANALYZING GEOTAG...' : `VERIFY DAY ${selectedDay} SESSION ${selectedSession}`}
+                    {isVerifying ? 'HQ UPLINK WAKING...' : `VERIFY DAY ${selectedDay} SESSION ${selectedSession}`}
                   </button>
                   {attendanceError && (
                     <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl animate-shake">
@@ -321,11 +325,17 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
       </div>
 
       <div className="bg-slate-900/50 rounded-[2.5rem] border border-slate-800 h-[450px] overflow-hidden flex flex-col shadow-2xl backdrop-blur-md">
-        <div className="px-8 py-6 border-b border-slate-800 bg-slate-900/20 flex justify-between items-center">
+        <div className="px-8 py-6 border-b border-slate-800 bg-slate-900/20 flex justify-between items-center" onClick={() => hasUnread && onClearUnread()}>
           <h3 className="text-xs font-black text-white uppercase tracking-[0.4em]">Direct Comms [HQ]</h3>
+          {hasUnread && (
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] font-black text-red-500 uppercase tracking-widest animate-pulse">NEW_INTEL</span>
+              <div className="w-2 h-2 bg-red-500 rounded-full animate-ping"></div>
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-hidden">
-           <ChatSystem messages={messages} onSendMessage={(s, r, t) => onSendMessage(t)} currentUserId={user.id} targets={[adminUser]} isMemberMode />
+           <ChatSystem messages={messages} onSendMessage={(s, r, t) => onSendMessage(t)} currentUserId={user.id} targets={[adminUser]} isMemberMode onClearUnread={onClearUnread} />
         </div>
       </div>
     </div>
