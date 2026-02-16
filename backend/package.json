@@ -1,0 +1,21 @@
+
+{
+  "name": "bcs-media-backend",
+  "version": "1.0.0",
+  "description": "Secure Real-time Production Proxy for BCS Media Operations",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.41.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "mongoose": "^8.9.0",
+    "socket.io": "^4.8.1"
+  }
+}

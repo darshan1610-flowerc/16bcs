@@ -1,0 +1,8 @@
+{
+  "name": "BCS MEDIA TEAM PRO",
+  "description": "High-precision cross-device team attendance and location tracking system.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
