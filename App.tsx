@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Role, User, Equipment, ChatMessage, LocationPoint, WorkUpdate, Geofence } from './types';
 import { INITIAL_USERS, INITIAL_EQUIPMENT } from './data';
@@ -25,11 +24,10 @@ const App: React.FC = () => {
   const [workUpdates, setWorkUpdates] = useState<WorkUpdate[]>([]);
   const [trackingActive, setTrackingActive] = useState(false);
   const [lastSync, setLastSync] = useState<number>(Date.now());
+  const [unreadIds, setUnreadIds] = useState<string[]>([]);
 
-  // Socket Connection Setup
   useEffect(() => {
     if (isLoggedIn && currentUser) {
-      // Added missing 'currentUser' argument to match syncService.init(eventCode, user, onUpdate)
       const cleanup = syncService.init(EVENT_CODE, currentUser, (update) => {
         setLastSync(Date.now());
         
@@ -40,9 +38,27 @@ const App: React.FC = () => {
           setWorkUpdates(state.workUpdates);
         } else if (update.type === 'user') {
           setUsers(prev => prev.map(u => u.id === update.userId ? { ...u, ...update.data } : u));
-        } else if (update.type === 'activity') {
-          if (update.type === 'messages') setMessages(prev => [...prev, update.item]);
-          if (update.type === 'workUpdates') setWorkUpdates(prev => [update.item, ...prev]);
+        } else if (update.type === 'messages') {
+          setMessages(prev => {
+            if (prev.some(m => m.id === update.item.id)) return prev;
+            
+            // Notification Logic: If message is for us and we aren't the sender
+            if (update.item.receiverId === currentUser.id) {
+              setUnreadIds(prevIds => {
+                if (!prevIds.includes(update.item.senderId)) {
+                  return [...prevIds, update.item.senderId];
+                }
+                return prevIds;
+              });
+            }
+            
+            return [...prev, update.item];
+          });
+        } else if (update.type === 'workUpdates') {
+          setWorkUpdates(prev => {
+            if (prev.some(w => w.id === update.item.id)) return prev;
+            return [update.item, ...prev];
+          });
         }
       });
       return cleanup;
@@ -118,7 +134,7 @@ const App: React.FC = () => {
 
   const sendChatMessage = (senderId: string, receiverId: string, text: string) => {
     const newMessage: ChatMessage = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).substring(2, 11),
       senderId,
       receiverId,
       text,
@@ -129,9 +145,13 @@ const App: React.FC = () => {
     syncService.broadcastActivity(EVENT_CODE, 'messages', newMessage);
   };
 
+  const clearUnreadFor = (id: string) => {
+    setUnreadIds(prev => prev.filter(uid => uid !== id));
+  };
+
   const addWorkUpdate = (userId: string, task: string) => {
     const update: WorkUpdate = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).substring(2, 11),
       userId,
       task,
       timestamp: Date.now()
@@ -143,6 +163,8 @@ const App: React.FC = () => {
   if (!isLoggedIn || !currentUser) {
     return <Login users={users} onLogin={handleLogin} />;
   }
+
+  const adminUser = users.find(u => u.role === Role.ADMIN);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -180,6 +202,8 @@ const App: React.FC = () => {
             onRegisterEquipment={registerEquipment}
             onSendMessage={sendChatMessage}
             adminId={currentUser.id}
+            unreadIds={unreadIds}
+            onClearUnread={clearUnreadFor}
           />
         ) : (
           <MemberPortal 
@@ -191,8 +215,10 @@ const App: React.FC = () => {
             onToggleTracking={() => setTrackingActive(!trackingActive)}
             onUpdateLocation={(lat, lng) => handleUpdateLocation(currentUser.id, lat, lng)}
             isTracking={trackingActive}
-            onSendMessage={(text) => sendChatMessage(currentUser.id, 'admin-1', text)}
+            onSendMessage={(text) => sendChatMessage(currentUser.id, adminUser?.id || 'admin-1', text)}
             onAddWorkUpdate={(task) => addWorkUpdate(currentUser.id, task)}
+            hasUnread={unreadIds.includes(adminUser?.id || 'admin-1')}
+            onClearUnread={() => clearUnreadFor(adminUser?.id || 'admin-1')}
           />
         )}
       </main>
