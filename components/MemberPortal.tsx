@@ -123,16 +123,16 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
         
         if (result.error) {
           setAttendanceError(result.error);
-        } else if (!result.isAuthentic) {
-          setAttendanceError("AUTH_ERROR: Digital manipulation or non-live photo detected.");
         } else if (result.latitude === null || result.longitude === null) {
-          setAttendanceError("GPS_ERROR: No valid coordinates found in image data.");
+          // If the AI couldn't find coordinates, we can't verify proximity
+          setAttendanceError("GPS_ERROR: No valid location data detected in the image. Ensure the photo contains landmarks or metadata.");
         } else {
+          // Prioritize actual coordinate proximity over 'liveness'
           const inCampus = isWithinCampus(result.latitude, result.longitude);
           if (inCampus) {
             onMarkAttendance(selectedDay, selectedSession);
           } else {
-            setAttendanceError(`LOCATION_DENIED: Coordinates (${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)}) are outside MIT-WPU.`);
+            setAttendanceError(`LOCATION_DENIED: Coordinates (${result.latitude.toFixed(4)}, ${result.longitude.toFixed(4)}) are outside the MIT-WPU boundary.`);
           }
         }
       } catch (err: any) {
@@ -239,7 +239,7 @@ const MemberPortal: React.FC<MemberPortalProps> = ({
                       isVerifying ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : `bg-white text-slate-950 hover:bg-slate-200 shadow-2xl active:scale-95`
                     }`}
                   >
-                    {isVerifying ? 'HQ UPLINK WAKING...' : `VERIFY DAY ${selectedDay} SESSION ${selectedSession}`}
+                    {isVerifying ? 'ANALYZING DATA...' : `VERIFY DAY ${selectedDay} SESSION ${selectedSession}`}
                   </button>
                   {attendanceError && (
                     <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl animate-shake">
