@@ -5,6 +5,7 @@ import AdminDashboard from './components/AdminDashboard';
 import MemberPortal from './components/MemberPortal';
 import Login from './components/Login';
 import { syncService } from './syncService';
+import { wakeUpHQ } from './aiService';
 
 const GEOFENCE: Geofence = {
   center: { lat: 18.5194, lng: 73.8150, timestamp: 0 },
@@ -25,6 +26,22 @@ const App: React.FC = () => {
   const [trackingActive, setTrackingActive] = useState(false);
   const [lastSync, setLastSync] = useState<number>(Date.now());
   const [unreadIds, setUnreadIds] = useState<string[]>([]);
+  const [hqActive, setHqActive] = useState(false);
+
+  // Background Wake-up Ping
+  useEffect(() => {
+    const pingHQ = async () => {
+      console.log("[BCS] Sending HQ Heartbeat...");
+      const active = await wakeUpHQ();
+      setHqActive(active);
+      if (!active) {
+        // Retry every 10s until server is awake
+        const timer = setTimeout(pingHQ, 10000);
+        return () => clearTimeout(timer);
+      }
+    };
+    pingHQ();
+  }, []);
 
   useEffect(() => {
     if (isLoggedIn && currentUser) {
@@ -175,8 +192,8 @@ const App: React.FC = () => {
             <span className="font-mono uppercase tracking-tighter text-[10px]">Relay: {trackingActive ? 'Socket Live' : 'Disconnected'}</span>
           </div>
           <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
-            <div className={`w-1.5 h-1.5 rounded-full bg-blue-500`}></div>
-            <span className="text-[9px] text-slate-400 font-bold uppercase">Event: {EVENT_CODE}</span>
+            <div className={`w-1.5 h-1.5 rounded-full ${hqActive ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-amber-500 animate-pulse'}`}></div>
+            <span className="text-[9px] text-slate-400 font-bold uppercase">HQ Link: {hqActive ? 'ESTABLISHED' : 'STANDBY'}</span>
           </div>
         </div>
         <div className="flex items-center gap-4">
